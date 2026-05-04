@@ -1,0 +1,31 @@
+FROM fedora:43
+
+# Layer 1: system deps — only rebuilds when this list changes
+RUN dnf install -y cmake gcc-c++ python3-devel pcre-devel bison flex \
+        libX11-devel zlib-devel wget autoconf automake libtool unzip \
+    && dnf clean all
+
+# Layer 2: full source copy + cmake configure + build custom swig
+# (swig download ~30s; this layer caches until any source file changes)
+COPY . /src/
+RUN cmake /src -B /build \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DENABLE_QRENDERDOC=OFF \
+      -DENABLE_PYRENDERDOC=ON \
+      -DENABLE_RENDERDOCCMD=OFF \
+      -DENABLE_XCB=OFF \
+      -DENABLE_XLIB=OFF \
+      -DENABLE_GL=OFF \
+      -DENABLE_GLES=OFF \
+      -DENABLE_VULKAN=OFF \
+    && cmake --build /build --target custom_swig -j$(nproc)
+
+# Layer 3: build the Python SWIG module
+# Separate RUN so "docker build --target" can stop here if needed
+RUN cmake --build /build --target _renderdoc -j$(nproc)
+
+# Default: copy outputs to /out (override entrypoint to do something else)
+CMD cp /build/qrenderdoc/Code/pyrenderdoc/renderdoc.so /out/ \
+    && cp /build/qrenderdoc/renderdoc.py /out/ \
+    && echo "Done. Files in /out:" && ls -lh /out/
+
