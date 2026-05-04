@@ -908,6 +908,52 @@ public:
   }
 };
 
+struct PythonScriptCommand : public Command
+{
+private:
+  std::string scriptfile;
+  rdcarray<rdcstr> scriptargs;
+
+public:
+  PythonScriptCommand() : Command() {}
+  virtual void AddOptions(cmdline::parser &parser)
+  {
+    parser.set_footer("<script.py> [script arguments ...]");
+    parser.stop_at_rest(true);
+  }
+  virtual const char *Description()
+  {
+    return "Run a Python script with the renderdoc module available on sys.path.";
+  }
+  virtual bool IsInternalOnly() { return false; }
+  virtual bool IsCaptureCommand() { return false; }
+  virtual bool Parse(cmdline::parser &parser, GlobalEnvironment &)
+  {
+    std::vector<std::string> rest = parser.rest();
+    parser.set_rest({});
+
+    if(rest.empty())
+    {
+      std::cerr << "Error: python command requires a script filename." << std::endl
+                << std::endl
+                << parser.usage();
+      return false;
+    }
+
+    scriptfile = rest[0];
+    rest.erase(rest.begin());
+
+    for(const std::string &a : rest)
+      scriptargs.push_back(conv(a));
+
+    return true;
+  }
+  virtual int Execute(const CaptureOptions &)
+  {
+    return RENDERDOC_RunPythonScript(conv(scriptfile), scriptargs);
+  }
+};
+
 struct CapAltBitCommand : public Command
 {
 private:
@@ -1574,6 +1620,8 @@ int renderdoccmd(GlobalEnvironment &env, std::vector<std::string> &argv)
     add_command("convert", new ConvertCommand());
     add_command("embed", new EmbeddedSectionCommand(false));
     add_command("extract", new EmbeddedSectionCommand(true));
+    add_command("python", new PythonScriptCommand());
+    add_alias("--python", "python");
 #endif    // !defined(RDOC_SELFCAPTURE_LIMITEDAPI)
 
     if(argv.size() <= 1)

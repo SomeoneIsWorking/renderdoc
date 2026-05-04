@@ -2445,6 +2445,10 @@ extern "C" RENDERDOC_API int RENDERDOC_CC RENDERDOC_RunUnitTests(const rdcstr &c
 
 DOCUMENT("INTERNAL: Run functional tests.");
 extern "C" RENDERDOC_API int RENDERDOC_CC RENDERDOC_RunFunctionalTests(const rdcarray<rdcstr> &args);
+
+DOCUMENT("Run a Python script with the renderdoc module available.");
+extern "C" RENDERDOC_API int RENDERDOC_CC RENDERDOC_RunPythonScript(const rdcstr &scriptfile,
+                                                                    const rdcarray<rdcstr> &args);
 #endif
 
 #if !defined(SWIG)

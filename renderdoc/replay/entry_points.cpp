@@ -1030,6 +1030,115 @@ extern "C" RENDERDOC_API int RENDERDOC_CC RENDERDOC_RunFunctionalTests(const rdc
   return mainFunc((int)wideArgStrings.size(), wideArgStrings.data());
 }
 
+extern "C" RENDERDOC_API int RENDERDOC_CC RENDERDOC_RunPythonScript(const rdcstr &scriptfile,
+                                                                    const rdcarray<rdcstr> &args)
+{
+#if ENABLED(RDOC_WIN32)
+  const char *moduledir = "/pymodules";
+  const char *modulename = "renderdoc.pyd";
+  rdcstr pythonlibs[] = {"python3?.dll"};
+#elif ENABLED(RDOC_LINUX)
+  const char *moduledir = "";
+  const char *modulename = "renderdoc.so";
+  rdcstr pythonlibs[] = {"libpython3.?m.so.1.0", "libpython3.?.so.1.0", "libpython3.?m.so",
+                         "libpython3.?.so"};
+#elif ENABLED(RDOC_APPLE)
+  const char *moduledir = "";
+  const char *modulename = "renderdoc.so";
+  rdcstr pythonlibs[] = {"libpython3.?.dylib"};
+#else
+  TestPrintMsg("Running python scripts not supported on this platform.\n");
+  return 1;
+#endif
+
+  rdcstr libPath;
+  FileIO::GetLibraryFilename(libPath);
+  libPath = get_dirname(libPath);
+  rdcstr modulePath = libPath + moduledir;
+  rdcstr moduleFilename = modulePath + "/" + modulename;
+
+  if(!FileIO::exists(moduleFilename))
+  {
+    TestPrintMsg(StringFormat::Fmt("Couldn't locate python module at %s\n", moduleFilename.c_str()));
+    return 1;
+  }
+
+  if(!FileIO::exists(scriptfile))
+  {
+    TestPrintMsg(StringFormat::Fmt("Script file not found: %s\n", scriptfile.c_str()));
+    return 1;
+  }
+
+  void *moduleHandle = Process::LoadModule(moduleFilename);
+  int pythonMinorVersion = 0;
+  if(moduleHandle)
+  {
+    typedef int (*PFN_rd_python_minor_version)();
+    PFN_rd_python_minor_version py_ver_minor =
+        (PFN_rd_python_minor_version)Process::GetFunctionAddress(moduleHandle,
+                                                                 "_rd_python_minor_version");
+    pythonMinorVersion = py_ver_minor();
+  }
+  else
+  {
+    TestPrintMsg(StringFormat::Fmt("Couldn't load python module at %s\n", moduleFilename.c_str()));
+    return 1;
+  }
+
+  void *handle = NULL;
+  for(rdcstr py : pythonlibs)
+  {
+    const int32_t idx = py.find('?');
+    if(idx == -1)
+      continue;
+    py.replace(idx, 1, StringFormat::Fmt("%d", pythonMinorVersion));
+    handle = Process::LoadModule(py);
+    if(handle)
+    {
+      RDCLOG("Loaded python from %s", py.c_str());
+      break;
+    }
+  }
+
+  if(!handle)
+  {
+    TestPrintMsg(StringFormat::Fmt("Couldn't locate python 3.%d library\n", pythonMinorVersion));
+    return 1;
+  }
+
+  typedef int(RENDERDOC_CC * PFN_Py_Main)(int, wchar_t **);
+  PFN_Py_Main mainFunc = (PFN_Py_Main)Process::GetFunctionAddress(handle, "Py_Main");
+  if(!mainFunc)
+  {
+    TestPrintMsg("Couldn't get Py_Main in python library\n");
+    return 1;
+  }
+
+  // Prepend the renderdoc module directory to PYTHONPATH so scripts can 'import renderdoc as rd'
+  rdcstr existingPath = Process::GetEnvVariable("PYTHONPATH");
+  rdcstr newPath = modulePath;
+  if(!existingPath.empty())
+    newPath += ":" + existingPath;
+  setenv("PYTHONPATH", newPath.c_str(), 1);
+
+  rdcarray<rdcwstr> wideArgs;
+  wideArgs.resize(args.size());
+  for(size_t i = 0; i < args.size(); i++)
+    wideArgs[i] = StringFormat::UTF82Wide(args[i]);
+
+  wideArgs.insert(0, {
+                         L"python",
+                         StringFormat::UTF82Wide(scriptfile),
+                     });
+
+  rdcarray<wchar_t *> wideArgStrings;
+  wideArgStrings.resize(wideArgs.size());
+  for(size_t i = 0; i < wideArgs.size(); i++)
+    wideArgStrings[i] = wideArgs[i].data();
+
+  return mainFunc((int)wideArgStrings.size(), wideArgStrings.data());
+}
+
 extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_BeginProfileRegion(const rdcstr &name)
 {
   Superluminal::BeginProfileRange(name);
